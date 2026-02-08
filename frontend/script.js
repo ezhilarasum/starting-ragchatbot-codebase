@@ -122,10 +122,54 @@ function addMessage(content, type, sources = null, isWelcome = false) {
     let html = `<div class="message-content">${displayContent}</div>`;
     
     if (sources && sources.length > 0) {
+        // Create sources list HTML with enhanced styling
+        const sourcesListHTML = sources.map(source => {
+            // Parse source string: "Course Title - Lesson N" or "Course Title"
+            const lessonMatch = source.match(/^(.+?)\s*-\s*Lesson\s+(\d+)$/i);
+
+            if (lessonMatch) {
+                // Has lesson number
+                const courseTitle = lessonMatch[1];
+                const lessonNum = lessonMatch[2];
+                return `
+                    <div class="source-item">
+                        <div class="source-icon lesson-icon">
+                            <span class="lesson-number">${lessonNum}</span>
+                        </div>
+                        <div class="source-details">
+                            <div class="source-course">${escapeHtml(courseTitle)}</div>
+                            <div class="source-lesson">Lesson ${lessonNum}</div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                // Course only (no specific lesson)
+                return `
+                    <div class="source-item">
+                        <div class="source-icon course-icon">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                                <path d="M2 3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3zm1 0v10h10V3H3z"/>
+                                <path d="M5 5h6v1H5V5zm0 2h6v1H5V7zm0 2h4v1H5V9z"/>
+                            </svg>
+                        </div>
+                        <div class="source-details">
+                            <div class="source-course">${escapeHtml(source)}</div>
+                            <div class="source-lesson">General course content</div>
+                        </div>
+                    </div>
+                `;
+            }
+        }).join('');
+
         html += `
-            <details class="sources-collapsible">
-                <summary class="sources-header">Sources</summary>
-                <div class="sources-content">${sources.join(', ')}</div>
+            <details class="message-sources">
+                <summary>
+                    <svg class="sources-icon" width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M2 3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3z"/>
+                    </svg>
+                    Sources (${sources.length})
+                </summary>
+                <div class="sources-list">${sourcesListHTML}</div>
             </details>
         `;
     }

@@ -4,93 +4,64 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A Retrieval-Augmented Generation (RAG) system for querying course materials. The system uses ChromaDB for vector storage, Anthropic's Claude API with tool calling for intelligent responses, and FastAPI for the web backend.
+A RAG (Retrieval-Augmented Generation) system for querying course materials. Uses ChromaDB for vector storage, Anthropic's Claude API with tool calling for responses, and FastAPI for the backend. Frontend is vanilla HTML/CSS/JS.
 
 ## Development Commands
 
-### Running the Application
-
 ```bash
-# Quick start (recommended)
-chmod +x run.sh
+# Quick start
 ./run.sh
 
-# Manual start
+# Manual start (must run from backend/)
 cd backend
 uv run uvicorn app:app --reload --port 8000
+
+# Package management — always use uv, never pip or python directly
+uv sync                    # Install/sync dependencies
+uv add <package-name>      # Add a dependency
+uv run python <file.py>    # Run a Python file
 ```
 
-The application runs on:
-- Web Interface: http://localhost:8000
-- API Documentation: http://localhost:8000/docs
+- Web interface: http://localhost:8000
+- API docs: http://localhost:8000/docs
+- Requires `.env` in project root with `ANTHROPIC_API_KEY=...`
 
-### Package Management
+## Architecture
 
-```bash
-# Install/sync dependencies
-uv sync
+### Query Flow (Two-Phase Tool Calling)
 
-# Add a new dependency
-uv add <package-name>
+```
+Frontend POST /api/query
+  → app.py: creates session if needed
+  → RAGSystem.query(): wraps query, gets conversation history
+  → AIGenerator.generate_response(): 1st Claude API call with tool definitions
+      ├─ stop_reason="end_turn" → direct answer (general knowledge)
+      └─ stop_reason="tool_use" → triggers search:
+          → ToolManager.execute_tool("search_course_content")
+          → CourseSearchTool.execute()
+          → VectorStore.search():
+              1. _resolve_course_name() — semantic search on course_catalog
+              2. _build_filter() — ChromaDB where clause
+              3. course_content.query() — semantic search on chunks
+          → AIGenerator: 2nd Claude call (no tools) with search results
+  → Sources collected from CourseSearchTool.last_sources, then reset
+  → Exchange saved to SessionManager
+  → Response: {answer, sources[], session_id}
 ```
 
-### Environment Setup
+### Two-Collection Pattern (ChromaDB)
 
-Required: Create `.env` file in root with:
-```
-ANTHROPIC_API_KEY=your_key_here
-```
+The VectorStore uses two separate ChromaDB collections:
+- **`course_catalog`**: Course metadata (title as ID). Used for fuzzy course name resolution via semantic search before content is queried.
+- **`course_content`**: Chunked lesson text with metadata (`course_title`, `lesson_number`, `chunk_index`). IDs: `{title_with_underscores}_{chunk_index}`.
 
-## Architecture Overview
+Search always resolves the course name first (if provided), then filters content. This two-step approach enables partial/fuzzy course name matching (e.g., "MCP" matches "Model Context Protocol").
 
-### RAG System Flow
+### Document Ingestion
 
-The system follows a tool-based RAG architecture where Claude decides when to search course content:
+On startup, `app.py` loads all `.txt`/`.pdf`/`.docx` files from `../docs`. Existing courses are skipped (matched by title). Use `clear_existing=True` in `add_course_folder()` for a fresh rebuild.
 
-1. **User Query** → FastAPI endpoint (`/api/query`)
-2. **RAGSystem** orchestrates all components
-3. **AIGenerator** uses Claude API with tool calling capability
-4. **CourseSearchTool** executes searches when Claude requests them
-5. **VectorStore** performs semantic search across two ChromaDB collections:
-   - `course_catalog`: Course metadata (titles, instructors, links)
-   - `course_content`: Chunked lesson content with metadata
-6. **Response** combines Claude's generation with retrieved context
-
-### Key Components
-
-**RAGSystem** (`backend/rag_system.py`): Main orchestrator
-- Coordinates document processing, vector storage, AI generation, and sessions
-- Handles course document ingestion and query processing
-- Manages tool registration and execution
-
-**VectorStore** (`backend/vector_store.py`): Two-collection architecture
-- Course name resolution via semantic search (fuzzy matching)
-- Content search with optional course/lesson filters
-- Uses `sentence-transformers` for embeddings (all-MiniLM-L6-v2)
-
-**AIGenerator** (`backend/ai_generator.py`): Claude API integration
-- Implements tool calling workflow (request → tool execution → final response)
-- System prompt optimized for brief, educational responses
-- Single search per query constraint to reduce latency
-
-**DocumentProcessor** (`backend/document_processor.py`): Document parsing
-- Parses structured course documents with specific format (see below)
-- Sentence-based chunking with configurable overlap
-- Extracts course metadata and lesson structure
-
-**SearchTool** (`backend/search_tools.py`): Tool interface
-- Implements Anthropic tool calling specification
-- Formats search results with course/lesson context
-- Tracks sources for frontend display
-
-**SessionManager** (`backend/session_manager.py`): Conversation state
-- Maintains per-session conversation history
-- Limits history to configurable message count (default: 2 exchanges)
-
-### Course Document Format
-
-Documents in `docs/` must follow this structure:
-
+Course documents must follow this format:
 ```
 Course Title: <title>
 Course Link: <url>
@@ -98,71 +69,27 @@ Course Instructor: <name>
 
 Lesson 0: <lesson_title>
 Lesson Link: <lesson_url>
-<lesson content...>
-
-Lesson 1: <lesson_title>
-Lesson Link: <lesson_url>
-<lesson content...>
+<content...>
 ```
 
-- First 3 lines are course metadata
-- Lessons marked with "Lesson N: Title" pattern
-- Optional "Lesson Link:" on line after lesson header
-- Content chunked at ~800 chars with 100 char overlap
+### Chunking Strategy
+
+Sentence-based chunking in `document_processor.py` (~800 chars, 100 char overlap). Splits on sentence boundaries using regex that avoids abbreviations. First chunk of each lesson is prefixed with `"Lesson N content: "`. Last chunk of each lesson is prefixed with `"Course {title} Lesson N content: "`.
+
+### Session Management
+
+In-memory only (lost on restart). Each browser tab gets a unique session ID (`session_1`, `session_2`, ...). History is capped at 2 exchanges (4 messages) and passed to Claude as formatted text in the system prompt.
+
+### Frontend-Backend Contract
+
+- `POST /api/query` — Request: `{query, session_id?}` → Response: `{answer, sources[], session_id}`
+- `GET /api/courses` — Response: `{total_courses, course_titles[]}`
+- Frontend served as static files from `../frontend` via `DevStaticFiles` (no-cache headers for development)
 
 ### Configuration
 
-All settings in `backend/config.py`:
+All settings in `backend/config.py` (dataclass with env var loading). Key values: model `claude-sonnet-4-20250514`, embeddings `all-MiniLM-L6-v2`, chunk size 800, overlap 100, max results 5, max history 2.
 
-- `ANTHROPIC_MODEL`: claude-sonnet-4-20250514
-- `EMBEDDING_MODEL`: all-MiniLM-L6-v2
-- `CHUNK_SIZE`: 800 characters
-- `CHUNK_OVERLAP`: 100 characters
-- `MAX_RESULTS`: 5 search results
-- `MAX_HISTORY`: 2 conversation exchanges
-- `CHROMA_PATH`: ./chroma_db
+### Key Constraint
 
-### Data Models
-
-Pydantic models in `backend/models.py`:
-
-- **Course**: title, course_link, instructor, lessons[]
-- **Lesson**: lesson_number, title, lesson_link
-- **CourseChunk**: content, course_title, lesson_number, chunk_index
-
-### Frontend
-
-Static HTML/CSS/JS served from `frontend/`:
-- Single-page application with chat interface
-- Calls `/api/query` and `/api/courses` endpoints
-- Displays sources with course/lesson context
-
-## Important Implementation Notes
-
-### Document Loading
-- On startup, `app.py` automatically loads all documents from `../docs`
-- Existing courses are skipped to avoid duplicates (checked by title)
-- Use `clear_existing=True` in `add_course_folder()` for fresh rebuild
-
-### Two-Collection Pattern
-- Course metadata stored separately from content for efficient fuzzy name matching
-- Search flow: resolve course name → filter content → return results
-- Course title serves as unique ID in both collections
-
-### Tool Calling Architecture
-- AIGenerator handles the tool calling loop internally
-- CourseSearchTool tracks sources from last search for frontend display
-- ToolManager resets sources after each query to avoid stale data
-
-### Chunking Strategy
-- Sentence-based chunking preserves semantic boundaries
-- First chunk of each lesson gets "Lesson N content:" prefix for context
-- Last lesson chunks get full "Course {title} Lesson N content:" prefix
-
-### ChromaDB Persistence
-- Data persists in `./chroma_db` directory
-- Collections created with `get_or_create_collection`
-- Use `clear_all_data()` to rebuild from scratch
-- always use uv to run the server do not use pip directly
-- make sure to use uv to manage all depenedencies
-- use uv to run Python files
+The system prompt enforces **one search per query maximum** to reduce latency. The second Claude API call is made **without tools** so Claude cannot request additional searches.
