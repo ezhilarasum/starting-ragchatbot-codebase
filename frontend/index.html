@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>Course Materials Assistant</title>
-    <link rel="stylesheet" href="style.css?v=9">
+    <link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
     <div class="container">
@@ -19,20 +19,14 @@
         <div class="main-content">
             <!-- Left Sidebar -->
             <aside class="sidebar">
+                <button class="new-chat-btn" id="newChatBtn">New Chat</button>
+
                 <!-- Course Stats -->
                 <div class="sidebar-section">
-                    <details class="stats-collapsible">
-                        <summary class="stats-header">Courses</summary>
-                        <div class="course-stats" id="courseStats">
-                            <div class="stat-item">
-                                <span class="stat-label">Number of courses:</span>
-                                <span class="stat-value" id="totalCourses">-</span>
-                            </div>
-                            <div class="stat-item">
-                                <div class="course-titles" id="courseTitles">
-                                    <span class="loading">Loading...</span>
-                                </div>
-                            </div>
+                    <details class="stats-collapsible" open>
+                        <summary class="stats-header">Courses (<span id="totalCourses">-</span>)</summary>
+                        <div class="course-list" id="courseList">
+                            <span class="loading">Loading...</span>
                         </div>
                     </details>
                 </div>
@@ -76,6 +70,6 @@
 
 
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="script.js?v=9"></script>
+    <script src="script.js?v=11"></script>
 </body>
 </html>

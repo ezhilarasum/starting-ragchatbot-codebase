@@ -5,7 +5,7 @@ const API_URL = '/api';
 let currentSessionId = null;
 
 // DOM elements
-let chatMessages, chatInput, sendButton, totalCourses, courseTitles;
+let chatMessages, chatInput, sendButton, totalCourses, courseList;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
     chatInput = document.getElementById('chatInput');
     sendButton = document.getElementById('sendButton');
     totalCourses = document.getElementById('totalCourses');
-    courseTitles = document.getElementById('courseTitles');
+    courseList = document.getElementById('courseList');
     
     setupEventListeners();
     createNewSession();
@@ -28,8 +28,15 @@ function setupEventListeners() {
     chatInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') sendMessage();
     });
-    
-    
+
+    // New chat button
+    document.getElementById('newChatBtn').addEventListener('click', () => {
+        createNewSession();
+        chatInput.disabled = false;
+        sendButton.disabled = false;
+        chatInput.focus();
+    });
+
     // Suggested questions
     document.querySelectorAll('.suggested-item').forEach(button => {
         button.addEventListener('click', (e) => {
@@ -196,40 +203,73 @@ async function createNewSession() {
     addMessage('Welcome to the Course Materials Assistant! I can help you with questions about courses, lessons and specific content. What would you like to know?', 'assistant', null, true);
 }
 
+// Render a single course card
+function renderCourseCard(course) {
+    const titleHtml = course.course_link
+        ? `<a class="course-card-title" href="${escapeHtml(course.course_link)}" target="_blank" rel="noopener noreferrer">${escapeHtml(course.title)}</a>`
+        : `<span class="course-card-title">${escapeHtml(course.title)}</span>`;
+
+    const instructorHtml = course.instructor
+        ? `<span class="course-card-instructor">${escapeHtml(course.instructor)}</span>`
+        : '';
+
+    const lessonCountHtml = `<span class="course-card-lesson-count">${course.lesson_count} lesson${course.lesson_count !== 1 ? 's' : ''}</span>`;
+
+    let lessonsHtml = '';
+    if (course.lessons && course.lessons.length > 0) {
+        const items = course.lessons.map(l => {
+            const label = `Lesson ${l.lesson_number}: ${escapeHtml(l.lesson_title)}`;
+            if (l.lesson_link) {
+                return `<li class="lesson-list-item"><a class="lesson-link" href="${escapeHtml(l.lesson_link)}" target="_blank" rel="noopener noreferrer">${label}</a></li>`;
+            }
+            return `<li class="lesson-list-item">${label}</li>`;
+        }).join('');
+
+        lessonsHtml = `
+            <details class="lesson-details">
+                <summary class="lesson-toggle">View lessons</summary>
+                <ol class="lesson-list">${items}</ol>
+            </details>`;
+    }
+
+    return `<div class="course-card">
+        ${titleHtml}
+        <div class="course-card-meta">
+            ${instructorHtml}
+            ${lessonCountHtml}
+        </div>
+        ${lessonsHtml}
+    </div>`;
+}
+
 // Load course statistics
 async function loadCourseStats() {
     try {
         console.log('Loading course stats...');
         const response = await fetch(`${API_URL}/courses`);
         if (!response.ok) throw new Error('Failed to load course stats');
-        
+
         const data = await response.json();
         console.log('Course data received:', data);
-        
-        // Update stats in UI
+
         if (totalCourses) {
             totalCourses.textContent = data.total_courses;
         }
-        
-        // Update course titles
-        if (courseTitles) {
-            if (data.course_titles && data.course_titles.length > 0) {
-                courseTitles.innerHTML = data.course_titles
-                    .map(title => `<div class="course-title-item">${title}</div>`)
-                    .join('');
+
+        if (courseList) {
+            if (data.courses && data.courses.length > 0) {
+                courseList.innerHTML = data.courses.map(renderCourseCard).join('');
             } else {
-                courseTitles.innerHTML = '<span class="no-courses">No courses available</span>';
+                courseList.innerHTML = '<span class="no-courses">No courses available</span>';
             }
         }
-        
     } catch (error) {
         console.error('Error loading course stats:', error);
-        // Set default values on error
         if (totalCourses) {
             totalCourses.textContent = '0';
         }
-        if (courseTitles) {
-            courseTitles.innerHTML = '<span class="error">Failed to load courses</span>';
+        if (courseList) {
+            courseList.innerHTML = '<span class="error">Failed to load courses</span>';
         }
     }
 }

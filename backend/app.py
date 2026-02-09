@@ -46,10 +46,24 @@ class QueryResponse(BaseModel):
     sources: List[str]
     session_id: str
 
+class LessonInfo(BaseModel):
+    """Response model for a single lesson"""
+    lesson_number: int
+    lesson_title: str
+    lesson_link: Optional[str] = None
+
+class CourseDetail(BaseModel):
+    """Response model for a single course with full metadata"""
+    title: str
+    instructor: Optional[str] = None
+    course_link: Optional[str] = None
+    lesson_count: int
+    lessons: List[LessonInfo] = []
+
 class CourseStats(BaseModel):
     """Response model for course statistics"""
     total_courses: int
-    course_titles: List[str]
+    courses: List[CourseDetail]
 
 # API Endpoints
 
@@ -78,9 +92,26 @@ async def get_course_stats():
     """Get course analytics and statistics"""
     try:
         analytics = rag_system.get_course_analytics()
+        courses = []
+        for meta in analytics.get("courses", []):
+            lessons = [
+                LessonInfo(
+                    lesson_number=l.get("lesson_number", 0),
+                    lesson_title=l.get("lesson_title", ""),
+                    lesson_link=l.get("lesson_link") or None
+                )
+                for l in meta.get("lessons", [])
+            ]
+            courses.append(CourseDetail(
+                title=meta.get("title", ""),
+                instructor=meta.get("instructor") or None,
+                course_link=meta.get("course_link") or None,
+                lesson_count=meta.get("lesson_count", len(lessons)),
+                lessons=lessons
+            ))
         return CourseStats(
             total_courses=analytics["total_courses"],
-            course_titles=analytics["course_titles"]
+            courses=courses
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
