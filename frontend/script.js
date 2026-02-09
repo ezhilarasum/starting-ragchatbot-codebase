@@ -1,6 +1,44 @@
 // API base URL - use relative path to work from any host
 const API_URL = '/api';
 
+// Theme Manager — runs immediately to avoid FOUC
+const ThemeManager = {
+    init() {
+        const saved = localStorage.getItem('theme');
+        if (saved) {
+            this.apply(saved);
+        } else if (window.matchMedia('(prefers-color-scheme: light)').matches) {
+            this.apply('light');
+        } else {
+            this.apply('dark');
+        }
+
+        // Listen for system preference changes (only when no explicit user choice)
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+            if (!localStorage.getItem('theme')) {
+                this.apply(e.matches ? 'dark' : 'light');
+            }
+        });
+    },
+
+    apply(theme) {
+        if (theme === 'light') {
+            document.documentElement.setAttribute('data-theme', 'light');
+        } else {
+            document.documentElement.removeAttribute('data-theme');
+        }
+    },
+
+    toggle() {
+        const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+        const newTheme = isLight ? 'dark' : 'light';
+        this.apply(newTheme);
+        localStorage.setItem('theme', newTheme);
+    }
+};
+
+ThemeManager.init();
+
 // Global state
 let currentSessionId = null;
 
@@ -35,6 +73,11 @@ function setupEventListeners() {
         chatInput.disabled = false;
         sendButton.disabled = false;
         chatInput.focus();
+    });
+
+    // Theme toggle
+    document.getElementById('themeToggleBtn').addEventListener('click', () => {
+        ThemeManager.toggle();
     });
 
     // Suggested questions
